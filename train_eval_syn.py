@@ -1,3 +1,4 @@
+import cv2
 import torch
 import torch.optim as optim
 from torch.optim import lr_scheduler
@@ -19,7 +20,12 @@ from tensorboardX import SummaryWriter
 from PIL import Image
 from torchvision.transforms import transforms
 
-def train(config, num_workers, num_threads, cuda, restart_train, mGPU):
+
+from torch.utils.data import Dataset, DataLoader
+from torchvision import transforms, utils
+from data_prepare import Customized_dataset
+
+def train(config, in_channel, num_workers, num_threads, cuda, restart_train, mGPU, train_dir, label_dir):
     # torch.set_num_threads(num_threads)
 
     train_config = config['training']
@@ -47,24 +53,40 @@ def train(config, num_workers, num_threads, cuda, restart_train, mGPU):
     log_writer = SummaryWriter(logs_dir)
 
     # dataset and dataloader
-    data_set = TrainDataSet(
-        train_config['dataset_configs'],
-        img_format='.bmp',
-        degamma=True,
-        color=False,
-        blind=arch_config['blind_est']
-    )
+    # data_set = TrainDataSet(
+    #     train_config['dataset_configs'],
+    #     img_format='.bmp',
+    #     degamma=True,
+    #     color=False,
+    #     blind=arch_config['blind_est']
+    # )
+    # data_loader = DataLoader(
+    #     data_set,
+    #     batch_size=batch_size,
+    #     shuffle=True,
+    #     num_workers=num_workers
+    # )
+    dataset_config = read_config(train_config['dataset_configs'], _configspec_path())['dataset_configs']
+    data = Customized_dataset(train_dir, label_dir, transform=None)#初始化类，设置数据集所在路径以及变换
+    # print('data',data)
     data_loader = DataLoader(
-        data_set,
-        batch_size=batch_size,
+        data,
+        # TODO:
+        # batch_size=batch_size,
+        batch_size=1,
         shuffle=True,
         num_workers=num_workers
     )
-    dataset_config = read_config(train_config['dataset_configs'], _configspec_path())['dataset_configs']
+    # dataloader = DataLoader(data,batch_size=3,shuffle=True)#使用DataLoader加载数据
+    # for i_batch,batch_data in enumerate(dataloader):
+    #     print(i_batch)#打印batch编号
+    #     print(batch_data['image'].size())#打印该batch里面图片的大小
+    #     print(batch_data['label'])#打印该batch里面图片的标签
 
     # model here
     model = KPN(
         color=False,
+        in_channel = in_channel,
         burst_length=dataset_config['burst_length'],
         blind_est=arch_config['blind_est'],
         kernel_size=list(map(int, arch_config['kernel_size'].split())),
@@ -74,6 +96,15 @@ def train(config, num_workers, num_threads, cuda, restart_train, mGPU):
         upMode=arch_config['upMode'],
         core_bias=arch_config['core_bias']
     )
+    # print('burst_length',dataset_config['burst_length'])
+    # print('blind_est', arch_config['blind_est'])
+    # print('kernel_size', list(map(int, arch_config['kernel_size'].split())))
+    # print('sep_conv',arch_config['sep_conv'])
+    # print('channel_att',arch_config['channel_att'])
+    # print('spatial_att',arch_config['spatial_att'])
+    # print('upMode'     ,arch_config['upMode'])
+    # print('core_bias'  ,arch_config['core_bias'])
+
     if cuda:
         model = model.cuda()
 
@@ -82,13 +113,14 @@ def train(config, num_workers, num_threads, cuda, restart_train, mGPU):
     model.train()
 
     # loss function here
-    loss_func = LossFunc(
-        coeff_basic=1.0,
-        coeff_anneal=1.0,
-        gradient_L1=True,
-        alpha=arch_config['alpha'],
-        beta=arch_config['beta']
-    )
+    # loss_func = LossFunc(
+    #     coeff_basic=1.0,
+    #     coeff_anneal=1.0,
+    #     gradient_L1=True,
+    #     alpha=arch_config['alpha'],
+    #     beta=arch_config['beta']
+    # )
+    loss_func = nn.L1Loss()
 
     # Optimizer here
     if train_config['optimizer'] == 'adam':
@@ -154,39 +186,47 @@ def train(config, num_workers, num_threads, cuda, restart_train, mGPU):
                 param['lr'] = 5e-6
         print('='*20, 'lr={}'.format([param['lr'] for param in optimizer.param_groups]), '='*20)
         t1 = time.time()
-        for step, (burst_noise, gt, white_level) in enumerate(data_loader):
+        for step, (input, label) in enumerate(data_loader):
+            size = input.size()
+            input =input.reshape([size[0], -1, size[1], size[2]])
             if cuda:
-                burst_noise = burst_noise.cuda()
-                gt = gt.cuda()
+                input = input.cuda()
+                #input = torch.sum(input, dim=1,keepdim=True)
+                label = label.float().cuda() / 255.0
             # print('white_level', white_level, white_level.size())
 
             #
-            pred_i, pred = model(burst_noise, burst_noise[:, 0:burst_length, ...], white_level)
+            pred = model(input)
 
             #
-            loss_basic, loss_anneal = loss_func(sRGBGamma(pred_i), sRGBGamma(pred), sRGBGamma(gt), global_step)
-            loss = loss_basic + loss_anneal
+            # loss_basic, loss_anneal = loss_func(sRGBGamma(pred_i), sRGBGamma(pred), sRGBGamma(gt), global_step)
+            # loss = loss_basic + loss_anneal
+            loss = loss_func(pred,label)
+            # print("loss",loss)
             # backward
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             # update the average loss
             average_loss.update(loss)
+            
+            #if step >50:
+            #    cv2.imwrite("test.jpg", (pred.data.cpu().squeeze().numpy()*255).astype(np.uint8))
+            #    print(label)
+            #    exit()
+            
             # calculate PSNR
-            psnr = calculate_psnr(pred.unsqueeze(1), gt.unsqueeze(1))
-            ssim = calculate_ssim(pred.unsqueeze(1), gt.unsqueeze(1))
-
+            psnr = calculate_psnr(pred,label)
+            ssim = calculate_ssim(pred,label)
             # add scalars to tensorboardX
-            log_writer.add_scalar('loss_basic', loss_basic, global_step)
-            log_writer.add_scalar('loss_anneal', loss_anneal, global_step)
+            # log_writer.add_scalar('loss_basic', loss_basic, global_step)
+            # log_writer.add_scalar('loss_anneal', loss_anneal, global_step)
             log_writer.add_scalar('loss_total', loss, global_step)
             log_writer.add_scalar('psnr', psnr, global_step)
             log_writer.add_scalar('ssim', ssim, global_step)
-
             # print
-            print('{:-4d}\t| epoch {:2d}\t| step {:4d}\t| loss_basic: {:.4f}\t| loss_anneal: {:.4f}\t|'
-                  ' loss: {:.4f}\t| PSNR: {:.2f}dB\t| SSIM: {:.4f}\t| time:{:.2f} seconds.'
-                  .format(global_step, epoch, step, loss_basic, loss_anneal, loss, psnr, ssim, time.time()-t1))
+            print('{:-4d}\t| epoch {:2d}\t| step {:4d}\t| loss: {:.4f}\t| PSNR: {:.2f}dB\t| SSIM: {:.4f}\t| time:{:.2f} seconds.'
+                  .format(global_step, epoch, step, loss, psnr, ssim, time.time()-t1))
             t1 = time.time()
             # global_step
             global_step += 1
@@ -253,6 +293,7 @@ def eval(config, args):
     # model here
     model = KPN(
         color=False,
+        in_channel = args.in_channel,
         burst_length=dataset_config['burst_length'],
         blind_est=arch_config['blind_est'],
         kernel_size=list(map(int, arch_config['kernel_size'].split())),
@@ -284,37 +325,37 @@ def eval(config, args):
     with torch.no_grad():
         psnr = 0.0
         ssim = 0.0
-        for i, (burst_noise, gt, white_level) in enumerate(data_loader):
+        for i, (input,label) in enumerate(data_loader):
             if i < 100:
                 # data = next(data_loader)
                 if args.cuda:
-                    burst_noise = burst_noise.cuda()
-                    gt = gt.cuda()
-                    white_level = white_level.cuda()
+                    label = label.cuda()
+                    # gt = gt.cuda()
+                    input = input.cuda()
 
-                pred_i, pred = model(burst_noise, burst_noise[:, 0:burst_length, ...], white_level)
+                pred = model(input)
 
-                pred_i = sRGBGamma(pred_i)
-                pred = sRGBGamma(pred)
-                gt = sRGBGamma(gt)
-                burst_noise = sRGBGamma(burst_noise / white_level)
+                # pred_i = sRGBGamma(pred_i)
+                # pred = sRGBGamma(pred)
+                # gt = sRGBGamma(gt)
+                # burst_noise = sRGBGamma(burst_noise / white_level)
 
-                psnr_t = calculate_psnr(pred.unsqueeze(1), gt.unsqueeze(1))
-                ssim_t = calculate_ssim(pred.unsqueeze(1), gt.unsqueeze(1))
-                psnr_noisy = calculate_psnr(burst_noise[:, 0, ...].unsqueeze(1), gt.unsqueeze(1))
+                psnr_t = calculate_psnr(pred,label)
+                ssim_t = calculate_ssim(pred,label)
+                # psnr_noisy = calculate_psnr(burst_noise[:, 0, ...].unsqueeze(1), gt.unsqueeze(1))
                 psnr += psnr_t
                 ssim += ssim_t
 
-                pred = torch.clamp(pred, 0.0, 1.0)
+                # pred = torch.clamp(pred, 0.0, 1.0)
 
                 if args.cuda:
                     pred = pred.cpu()
-                    gt = gt.cpu()
-                    burst_noise = burst_noise.cpu()
+                    # gt = gt.cpu()
+                    # burst_noise = burst_noise.cpu()
 
-                trans(burst_noise[0, 0, ...].squeeze()).save(os.path.join(eval_dir, '{}_noisy_{:.2f}dB.png'.format(i, psnr_noisy)), quality=100)
+                # trans(burst_noise[0, 0, ...].squeeze()).save(os.path.join(eval_dir, '{}_noisy_{:.2f}dB.png'.format(i, psnr_noisy)), quality=100)
                 trans(pred.squeeze()).save(os.path.join(eval_dir, '{}_pred_{:.2f}dB.png'.format(i, psnr_t)), quality=100)
-                trans(gt.squeeze()).save(os.path.join(eval_dir, '{}_gt.png'.format(i)), quality=100)
+                trans(label.squeeze()).save(os.path.join(eval_dir, '{}_gt.png'.format(i)), quality=100)
 
                 print('{}-th image is OK, with PSNR: {:.2f}dB, SSIM: {:.4f}'.format(i, psnr_t, ssim_t))
             else:
@@ -328,6 +369,8 @@ if __name__ == '__main__':
     parser.add_argument('--config_file', dest='config_file', default='kpn_specs/kpn_config.conf', help='path to config file')
     parser.add_argument('--config_spec', dest='config_spec', default='kpn_specs/configspec.conf', help='path to config spec file')
     parser.add_argument('--restart', action='store_true', help='Whether to remove all old files and restart the training process')
+    parser.add_argument('--train_dir', type=str, default='../train/', help='the peth to training dataset')
+    parser.add_argument('--label_dir', type=str, default='../label/', help='the peth to label dataset')
     parser.add_argument('--num_workers', '-nw', default=4, type=int, help='number of workers in data loader')
     parser.add_argument('--num_threads', '-nt', default=8, type=int, help='number of threads in data loader')
     parser.add_argument('--cuda', '-c', action='store_true', help='whether to train on the GPU')
@@ -335,10 +378,13 @@ if __name__ == '__main__':
     parser.add_argument('--eval', action='store_true', help='whether to work on the evaluation mode')
     parser.add_argument('--checkpoint', '-ckpt', dest='checkpoint', type=str, default='best',
                         help='the checkpoint to eval')
+    parser.add_argument('--in_channel', type=int,           default=50,help='the input channel')
     args = parser.parse_args()
     #
+    
+
     config = read_config(args.config_file, args.config_spec)
     if args.eval:
         eval(config, args)
     else:
-        train(config, args.num_workers, args.num_threads, args.cuda, args.restart, args.mGPU)
+        train(config, args.in_channel, args.num_workers, args.num_threads, args.cuda, args.restart, args.mGPU, args.train_dir, args.label_dir)

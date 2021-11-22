@@ -56,14 +56,14 @@ class Basic(nn.Module):
 
 
 class KPN(nn.Module):
-    def __init__(self, color=True, burst_length=8, blind_est=False, kernel_size=[5], sep_conv=False,
+    def __init__(self, color=True, in_channel=100,burst_length=8, blind_est=False, kernel_size=[5], sep_conv=False,
                  channel_att=False, spatial_att=False, upMode='bilinear', core_bias=False):
         super(KPN, self).__init__()
         self.upMode = upMode
         self.burst_length = burst_length
         self.core_bias = core_bias
         self.color_channel = 3 if color else 1
-        in_channel = (3 if color else 1) * (burst_length if blind_est else burst_length+1)
+        in_channel = in_channel
         out_channel = (3 if color else 1) * (2 * sum(kernel_size) if sep_conv else np.sum(np.array(kernel_size) ** 2)) * burst_length
         if core_bias:
             out_channel += (3 if color else 1) * burst_length
@@ -79,8 +79,10 @@ class KPN(nn.Module):
         self.conv7 = Basic(256+512, 256, channel_att=channel_att, spatial_att=spatial_att)
         self.conv8 = Basic(256+128, out_channel, channel_att=channel_att, spatial_att=spatial_att)
         self.outc = nn.Conv2d(out_channel, out_channel, 1, 1, 0)
+        self.dw = nn.Conv2d(out_channel+in_channel, out_channel+in_channel, kernel_size=3, stride=1, padding=1, groups=out_channel+in_channel)
+        self.pw = nn.Conv2d(out_channel+in_channel, 1, kernel_size=1, stride=1, padding=0)
 
-        self.kernel_pred = KernelConv(kernel_size, sep_conv, self.core_bias)
+        # self.kernel_pred = KernelConv(kernel_size, sep_conv, self.core_bias)
 
         self.apply(self._init_weights)
 
@@ -94,14 +96,14 @@ class KPN(nn.Module):
             nn.init.constant_(m.bias.data, 0.0)
 
     # 前向传播函数
-    def forward(self, data_with_est, data, white_level=1.0):
+    def forward(self, data):
         """
         forward and obtain pred image directly
         :param data_with_est: if not blind estimation, it is same as data
         :param data:
         :return: pred_img_i and img_pred
         """
-        conv1 = self.conv1(data_with_est)
+        conv1 = self.conv1(data)
         conv2 = self.conv2(F.avg_pool2d(conv1, kernel_size=2, stride=2))
         conv3 = self.conv3(F.avg_pool2d(conv2, kernel_size=2, stride=2))
         conv4 = self.conv4(F.avg_pool2d(conv3, kernel_size=2, stride=2))
@@ -112,8 +114,9 @@ class KPN(nn.Module):
         conv8 = self.conv8(torch.cat([conv2, F.interpolate(conv7, scale_factor=2, mode=self.upMode)], dim=1))
         # return channel K*K*N
         core = self.outc(F.interpolate(conv8, scale_factor=2, mode=self.upMode))
+        return self.pw(self.dw(torch.cat([core,data], dim=1)))
 
-        return self.kernel_pred(data, core, white_level)
+        # return self.kernel_pred(data, core, white_level)
 
 
 class KernelConv(nn.Module):

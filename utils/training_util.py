@@ -121,7 +121,12 @@ def torch2numpy(tensor, gamma=None):
     # Convert to 0 - 255
     if gamma is not None:
         tensor = torch.pow(tensor, gamma)
-    tensor *= 255.0
+    if len(list(tensor.shape)) == 3:
+        tensor = torch.unsqueeze(tensor.float()* 255.0,1)
+    elif len(list(tensor.shape)) == 4:
+        tensor = tensor.float()* 255.0
+    else:
+        raise Exception('tensor number of dimensions should either be 3 or 4')
     return tensor.permute(0, 2, 3, 1).cpu().data.numpy()
 
 
