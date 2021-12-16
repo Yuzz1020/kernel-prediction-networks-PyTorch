@@ -12,27 +12,30 @@ class Basic(nn.Module):
         self.channel_att = channel_att
         self.spatial_att = spatial_att
         self.conv1 = nn.Sequential(
-                nn.Conv2d(in_channels=in_ch, out_channels=out_ch, kernel_size=3, stride=1, padding=1),
-                # nn.BatchNorm2d(out_ch),
+                nn.Conv2d(in_channels=in_ch, out_channels=out_ch, kernel_size=1, stride=1, padding=0, bias=True),
+                nn.BatchNorm2d(out_ch),
                 nn.ReLU(),
-                nn.Conv2d(in_channels=out_ch, out_channels=out_ch, kernel_size=3, stride=1, padding=1),
-                # nn.BatchNorm2d(out_ch),
+                nn.Conv2d(in_channels=out_ch, out_channels=out_ch, kernel_size=3, stride=1, padding=1, groups=1, bias=True),
+                nn.BatchNorm2d(out_ch),
                 nn.ReLU(),
-                nn.Conv2d(in_channels=out_ch, out_channels=out_ch, kernel_size=3, stride=1, padding=1),
-                # nn.BatchNorm2d(out_ch),
+                nn.Conv2d(in_channels=out_ch, out_channels=out_ch, kernel_size=3, stride=1, padding=1, groups=1, bias=True),
+                nn.BatchNorm2d(out_ch),
                 nn.ReLU()
             )
 
         if channel_att:
             self.att_c = nn.Sequential(
                 nn.Conv2d(2*out_ch, out_ch//g, 1, 1, 0),
+                nn.BatchNorm2d(out_ch//g),
                 nn.ReLU(),
                 nn.Conv2d(out_ch//g, out_ch, 1, 1, 0),
+                nn.BatchNorm2d(out_ch),
                 nn.Sigmoid()
             )
         if spatial_att:
             self.att_s = nn.Sequential(
                 nn.Conv2d(in_channels=2, out_channels=1, kernel_size=7, stride=1, padding=3),
+                nn.BatchNorm2d(1),
                 nn.Sigmoid()
             )
 

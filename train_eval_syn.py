@@ -15,6 +15,7 @@ from kpn_data_provider import TrainDataSet, UndosRGBGamma, sRGBGamma
 from KPN import KPN, LossFunc
 from utils.training_util import MovingAverage, save_checkpoint, load_checkpoint, read_config
 from utils.training_util import calculate_psnr, calculate_ssim
+from utils.Charbonnier_loss import CharbonnierPenalty
 
 from tensorboardX import SummaryWriter
 from PIL import Image
@@ -73,7 +74,7 @@ def train(config, in_channel, num_workers, num_threads, cuda, restart_train, mGP
         data,
         # TODO:
         # batch_size=batch_size,
-        batch_size=1,
+        batch_size=64,
         shuffle=True,
         num_workers=num_workers
     )
@@ -111,6 +112,7 @@ def train(config, in_channel, num_workers, num_threads, cuda, restart_train, mGP
     if mGPU:
         model = nn.DataParallel(model)
     model.train()
+    # print(model)
 
     # loss function here
     # loss_func = LossFunc(
@@ -120,7 +122,9 @@ def train(config, in_channel, num_workers, num_threads, cuda, restart_train, mGP
     #     alpha=arch_config['alpha'],
     #     beta=arch_config['beta']
     # )
-    loss_func = nn.L1Loss()
+    # loss_func = nn.L1Loss()
+    loss_func = nn.MSELoss()
+    # loss_func = CharbonnierPenalty(10, total_variation=False, per_pixel=False)
 
     # Optimizer here
     if train_config['optimizer'] == 'adam':
@@ -197,6 +201,9 @@ def train(config, in_channel, num_workers, num_threads, cuda, restart_train, mGP
 
             #
             pred = model(input)
+
+            if len(list(label.shape)) == 3:
+                label = torch.unsqueeze(label,1)
 
             #
             # loss_basic, loss_anneal = loss_func(sRGBGamma(pred_i), sRGBGamma(pred), sRGBGamma(gt), global_step)
@@ -334,7 +341,8 @@ def eval(config, args):
                     input = input.cuda()
 
                 pred = model(input)
-
+                if len(list(label.shape)) == 3:
+                    label = torch.unsqueeze(label,1)
                 # pred_i = sRGBGamma(pred_i)
                 # pred = sRGBGamma(pred)
                 # gt = sRGBGamma(gt)

@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import os
 
-# reserved for future use
+# reserved for future use: no oversampling; directly add the poisson noise and concatenate images
 # #read images into greayscale and add poisson noise
 # def read_images(image_path, image_count):
 #     for i in range(image_count):
@@ -25,6 +25,34 @@ import os
 #         # exit()
 #         images.append(np.expand_dims(tmp,2))
 
+fixed_idx = False
+if fixed_idx:
+    idx_w = 200
+    idx_h = 100
+
+def crop_random(img, scale_factor, w, h=None):
+    """randomly crop a patch shaped patch_size*patch_size, with a upscale factor"""
+    h = w if h is None else h
+    nw = img.shape[1] - w*scale_factor
+    nh = img.shape[0] - h*scale_factor
+    if nw < 0 or nh < 0:
+        raise RuntimeError("Image is to small {} for the desired size {}". \
+                                format((img.shape[1], img.shape[0]), (w*scale_factor, h*scale_factor))
+                          )
+    
+    if not fixed_idx:
+        idx_w = np.random.randint(0, nw+1)
+        idx_h = np.random.randint(0, nh+1)
+
+    scaled_patch = img[idx_h:idx_h+h*scale_factor, idx_w:idx_w+w*scale_factor]
+    # print(scaled_patch.shape)
+
+    patch = cv2.resize(scaled_patch, (w, h), interpolation=cv2.INTER_CUBIC)
+    # print(patch.shape)
+    return patch
+
+
+
 
 #convert mp4 to list of images
 def convert_video_to_images(video_path, image_path):
@@ -33,6 +61,7 @@ def convert_video_to_images(video_path, image_path):
     print(success)
     count = 0
     while success:
+        image = crop_random(image, 2, 128, 128)
         cv2.imwrite(image_path + "frame%d.jpg" % count, image)  # save frame as JPEG file
         success, image = vidcap.read()
         print('Read a new frame: ', success)
@@ -65,5 +94,5 @@ def read_images(image_path, train_path, label_path, image_count, oversampled_rat
         #save to npy file
         np.save(train_path + "frame%d.npy" % i, images_np)
 
-#convert_video_to_images("../original_high_fps_videos/GOPR9654a.mp4","../test_images/")
+# convert_video_to_images("../original_high_fps_videos/GOPR9654a.mp4"0,"../test_images/")
 read_images("../test_images/","../train/","../label/", 1400)
