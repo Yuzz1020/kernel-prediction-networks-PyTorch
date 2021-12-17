@@ -150,14 +150,18 @@ def train(config, in_channel, num_workers, num_threads, cuda, restart_train, mGP
     if not restart_train:
         try:
             checkpoint = load_checkpoint(checkpoint_dir, 'best')
-            start_epoch = checkpoint['epoch']
-            global_step = checkpoint['global_iter']
-            best_loss = checkpoint['best_loss']
+            # start_epoch = checkpoint['epoch']
+            # global_step = checkpoint['global_iter']
+            # best_loss = checkpoint['best_loss']
+            start_epoch = 0
+            global_step = 0
+            best_loss = np.inf
             model.load_state_dict(checkpoint['state_dict'])
-            optimizer.load_state_dict(checkpoint['optimizer'])
-            scheduler.load_state_dict(checkpoint['lr_scheduler'])
+            # optimizer.load_state_dict(checkpoint['optimizer'])
+            # scheduler.load_state_dict(checkpoint['lr_scheduler'])
             print('=> loaded checkpoint (epoch {}, global_step {})'.format(start_epoch, global_step))
-        except:
+        except Exception as e:
+            print(e)
             start_epoch = 0
             global_step = 0
             best_loss = np.inf
@@ -183,11 +187,11 @@ def train(config, in_channel, num_workers, num_threads, cuda, restart_train, mGP
         epoch_start_time = time.time()
         # decay the learning rate
         lr_cur = [param['lr'] for param in optimizer.param_groups]
-        if lr_cur[0] > 5e-6:
+        if lr_cur[0] > train_config['min_learning_rate']:
             scheduler.step()
         else:
             for param in optimizer.param_groups:
-                param['lr'] = 5e-6
+                param['lr'] = train_config['min_learning_rate']
         print('='*20, 'lr={}'.format([param['lr'] for param in optimizer.param_groups]), '='*20)
         t1 = time.time()
         for step, (input, label) in enumerate(data_loader):
@@ -247,11 +251,14 @@ def train(config, in_channel, num_workers, num_threads, cuda, restart_train, mGP
 
                 save_dict = {
                     'epoch': epoch,
+                    'config': config,
                     'global_iter': global_step,
                     'state_dict': model.state_dict(),
                     'best_loss': best_loss,
                     'optimizer': optimizer.state_dict(),
-                    'lr_scheduler': scheduler.state_dict()
+                    'lr_scheduler': scheduler.state_dict(),
+                    'psnr': psnr,
+                    'ssim': ssim
                 }
                 save_checkpoint(
                     save_dict, is_best, checkpoint_dir, global_step, max_keep=train_config['ckpt_to_keep']
@@ -280,21 +287,32 @@ def eval(config, args):
         os.remove(os.path.join(eval_dir, f))
 
     # dataset and dataloader
-    data_set = TrainDataSet(
-        train_config['dataset_configs'],
-        img_format='.bmp',
-        degamma=True,
-        color=False,
-        blind=arch_config['blind_est'],
-        train=False
-    )
+    # data_set = TrainDataSet(
+    #     train_config['dataset_configs'],
+    #     img_format='.bmp',
+    #     degamma=True,
+    #     color=False,
+    #     blind=arch_config['blind_est'],
+    #     train=False
+    # )
+    # data_loader = DataLoader(
+    #     data_set,
+    #     batch_size=1,
+    #     shuffle=False,
+    #     num_workers=args.num_workers
+    # )
+
+    dataset_config = read_config(train_config['dataset_configs'], _configspec_path())['dataset_configs']
+    data = Customized_dataset(args.train_dir, args.label_dir, transform=None)#初始化类，设置数据集所在路径以及变换
+    # print('data',data)
     data_loader = DataLoader(
-        data_set,
+        data,
+        # TODO:
+        # batch_size=batch_size,
         batch_size=1,
-        shuffle=False,
+        shuffle=True,
         num_workers=args.num_workers
     )
-
     dataset_config = read_config(train_config['dataset_configs'], _configspec_path())['dataset_configs']
 
     # model here
@@ -332,13 +350,17 @@ def eval(config, args):
     with torch.no_grad():
         psnr = 0.0
         ssim = 0.0
+        num_frames=100
         for i, (input,label) in enumerate(data_loader):
-            if i < 100:
+            if i < num_frames:
                 # data = next(data_loader)
+                size = input.size()
+                input =input.reshape([size[0], -1, size[1], size[2]])
+                print(input.shape)
                 if args.cuda:
-                    label = label.cuda()
-                    # gt = gt.cuda()
                     input = input.cuda()
+                    #input = torch.sum(input, dim=1,keepdim=True)
+                    label = label.float().cuda() / 255.0
 
                 pred = model(input)
                 if len(list(label.shape)) == 3:
@@ -364,11 +386,13 @@ def eval(config, args):
                 # trans(burst_noise[0, 0, ...].squeeze()).save(os.path.join(eval_dir, '{}_noisy_{:.2f}dB.png'.format(i, psnr_noisy)), quality=100)
                 trans(pred.squeeze()).save(os.path.join(eval_dir, '{}_pred_{:.2f}dB.png'.format(i, psnr_t)), quality=100)
                 trans(label.squeeze()).save(os.path.join(eval_dir, '{}_gt.png'.format(i)), quality=100)
+                for ti in range(10):
+                    trans(((input[0,ti]).float()).squeeze()).save(os.path.join(eval_dir, '{}_gt_{}.png'.format(i, ti)), quality=100)
 
                 print('{}-th image is OK, with PSNR: {:.2f}dB, SSIM: {:.4f}'.format(i, psnr_t, ssim_t))
             else:
                 break
-        print('All images are OK, average PSNR: {:.2f}dB, SSIM: {:.4f}'.format(psnr/100, ssim/100))
+        print('All images are OK, average PSNR: {:.2f}dB, SSIM: {:.4f}'.format(psnr/num_frames, ssim/num_frames))
 
 
 if __name__ == '__main__':

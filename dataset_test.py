@@ -84,15 +84,17 @@ def read_images(image_path, train_path, label_path, image_count, oversampled_rat
             #add poisson noise
             tmp_poisson = np.random.poisson(tmp, tmp.shape)
             tmp_poisson = (tmp_poisson > 0).astype(np.float32)
-            # #save tmp as image
-            # cv2.imwrite("test.jpg", tmp_poisson.astype(np.uint8)*255)
-            # exit()
+            # if i ==144:
+            #     #save tmp as image
+            #     cv2.imwrite(train_path+"/test_"+str(i)+"_"+str(j)+".jpg", tmp_poisson.astype(np.uint8)*255)
+
             images.append(np.expand_dims(tmp_poisson,2))
         #concatenate images
         images_np = np.concatenate(images, axis=2)
         print("frame%d.npy" % i, images_np.shape)
         #save to npy file
         np.save(train_path + "frame%d.npy" % i, images_np)
+
 
 # convert_video_to_images("../original_high_fps_videos/GOPR9654a.mp4"0,"../test_images/")
 read_images("../test_images/","../train/","../label/", 1400)
