@@ -55,17 +55,18 @@ def crop_random(img, scale_factor, w, h=None):
 
 
 #convert mp4 to list of images
-def convert_video_to_images(video_path, image_path):
-    vidcap = cv2.VideoCapture(video_path)
-    success, image = vidcap.read()
-    print(success)
+def convert_video_to_images(video_paths, image_path):
     count = 0
-    while success:
-        image = crop_random(image, 2, 128, 128)
-        cv2.imwrite(image_path + "frame%d.jpg" % count, image)  # save frame as JPEG file
+    for video_path in video_paths:
+        vidcap = cv2.VideoCapture(video_path)
         success, image = vidcap.read()
-        print('Read a new frame: ', success)
-        count += 1
+        print(success)
+        while success:
+            image = crop_random(image, 2, 128, 128)
+            cv2.imwrite(image_path + "frame%d.jpg" % count, image)  # save frame as JPEG file
+            success, image = vidcap.read()
+            print('Read a new frame: ', success)
+            count += 1
     return count
 
 #read images into greayscale and add poisson noise
@@ -78,7 +79,10 @@ def read_images(image_path, train_path, label_path, image_count, oversampled_rat
         tmp = cv2.imread(image_path + "frame%d.jpg" % i, 0)
         np.save(label_path + "frame%d.npy" % i, tmp)
         #magnitude normalization (to 0.5)
-        tmp = tmp / np.max(tmp) * 0.5
+        if np.max(tmp) == 0:
+            tmp = tmp * 0.0
+        else:
+            tmp = tmp / np.max(tmp) * 0.5
         images = []
         for j in range(oversampled_rate):
             #add poisson noise
@@ -95,6 +99,14 @@ def read_images(image_path, train_path, label_path, image_count, oversampled_rat
         #save to npy file
         np.save(train_path + "frame%d.npy" % i, images_np)
 
+video_list=[]
+for f in os.listdir("../original_high_fps_videos/"):
+    print(f)
+    if "GOPR9646.mp4" not in f:
+        video_list.append("../original_high_fps_videos/"+f)
 
-# convert_video_to_images("../original_high_fps_videos/GOPR9654a.mp4"0,"../test_images/")
-read_images("../test_images/","../train/","../label/", 1400)
+#img_count = convert_video_to_images(["../original_high_fps_videos/GOPR9654a.mp4","../original_high_fps_videos/GOPR9653.mp4","../original_high_fps_videos/GOPR9633.mp4","../original_high_fps_videos/GOPR9645.mp4"],"../test_images/")
+
+#img_count = convert_video_to_images(video_list, "../test_images/")
+#print("total images: ", img_count)
+read_images("../test_images/","../train/","../label/", 121340)

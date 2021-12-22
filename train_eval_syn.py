@@ -235,6 +235,7 @@ def train(config, in_channel, num_workers, num_threads, cuda, restart_train, mGP
             log_writer.add_scalar('loss_total', loss, global_step)
             log_writer.add_scalar('psnr', psnr, global_step)
             log_writer.add_scalar('ssim', ssim, global_step)
+            log_writer.add_scalar('learning_rate', lr_cur, global_step)
             # print
             print('{:-4d}\t| epoch {:2d}\t| step {:4d}\t| loss: {:.4f}\t| PSNR: {:.2f}dB\t| SSIM: {:.4f}\t| time:{:.2f} seconds.'
                   .format(global_step, epoch, step, loss, psnr, ssim, time.time()-t1))
