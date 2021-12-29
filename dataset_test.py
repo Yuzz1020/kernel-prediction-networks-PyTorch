@@ -62,7 +62,8 @@ def convert_video_to_images(video_paths, image_path):
         success, image = vidcap.read()
         print(success)
         while success:
-            image = crop_random(image, 2, 128, 128)
+            #! moved the crop to the dataset loader
+            # image = crop_random(image, 2, 640, 640)
             cv2.imwrite(image_path + "frame%d.jpg" % count, image)  # save frame as JPEG file
             success, image = vidcap.read()
             print('Read a new frame: ', success)
@@ -91,7 +92,8 @@ def read_images(image_path, train_path, label_path, image_count, oversampled_rat
             # if i ==144:
             #     #save tmp as image
             #     cv2.imwrite(train_path+"/test_"+str(i)+"_"+str(j)+".jpg", tmp_poisson.astype(np.uint8)*255)
-
+            
+            #concatenate the channels: the last dimension
             images.append(np.expand_dims(tmp_poisson,2))
         #concatenate images
         images_np = np.concatenate(images, axis=2)
@@ -105,8 +107,16 @@ for f in os.listdir("../original_high_fps_videos/"):
     if "GOPR9646.mp4" not in f:
         video_list.append("../original_high_fps_videos/"+f)
 
-#img_count = convert_video_to_images(["../original_high_fps_videos/GOPR9654a.mp4","../original_high_fps_videos/GOPR9653.mp4","../original_high_fps_videos/GOPR9633.mp4","../original_high_fps_videos/GOPR9645.mp4"],"../test_images/")
+#training images
+img_count = convert_video_to_images(video_list, "../test_images/")
+print("total images: ", img_count)
 
-#img_count = convert_video_to_images(video_list, "../test_images/")
-#print("total images: ", img_count)
-read_images("../test_images/","../train/","../label/", 121340)
+# no longer needed; merged to the dataloader
+# read_images("../test_images/","../train/","../label/", 121340)
+
+#evaluation images
+img_count = convert_video_to_images(["../original_high_fps_videos/GOPR9646.mp4"], "../eval_images/")
+print("total images: ", img_count)
+
+# no longer needed; merged to the dataloader
+# read_images("../eval_images/","../eval/","../eval_label/", 671)

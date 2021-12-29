@@ -12,7 +12,7 @@ import os, sys, time, shutil
 
 from data_provider import OnTheFlyDataset, _configspec_path
 from kpn_data_provider import TrainDataSet, UndosRGBGamma, sRGBGamma
-from KPN import KPN, LossFunc
+from KPN_unet import KPN, LossFunc
 from utils.training_util import MovingAverage, save_checkpoint, load_checkpoint, read_config
 from utils.training_util import calculate_psnr, calculate_ssim
 from utils.Charbonnier_loss import CharbonnierPenalty
@@ -26,14 +26,7 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, utils
 from data_prepare import Customized_dataset
 
-#TODO: include white level see kpn_data_provider.py for details  --> do not necessary have the while level due to binarized frames; 
-#      TODO: can potentially integrated into the data generation process: add white level before binarization
-#TODO: include additional channel for the standard deviation estimation    --> not sure if applicable to the binarized frames; excluded for now
-#TODO: not sure if RGB degamma is necessary
-#TODO done: include misalignment for within a sinlge burst --> mimic motion 
-
-
-def train(config, in_channel, num_workers, num_threads, cuda, restart_train, mGPU, train_dir):
+def train(config, in_channel, num_workers, num_threads, cuda, restart_train, mGPU, train_dir, label_dir):
     # torch.set_num_threads(num_threads)
 
     train_config = config['training']
@@ -79,7 +72,9 @@ def train(config, in_channel, num_workers, num_threads, cuda, restart_train, mGP
     # print('data',data)
     data_loader = DataLoader(
         data,
-        batch_size=batch_size,
+        # TODO:
+        # batch_size=batch_size,
+        batch_size=64,
         shuffle=True,
         num_workers=num_workers
     )
@@ -102,14 +97,14 @@ def train(config, in_channel, num_workers, num_threads, cuda, restart_train, mGP
         upMode=arch_config['upMode'],
         core_bias=arch_config['core_bias']
     )
-    print('burst_length',dataset_config['burst_length'])
-    print('blind_est', arch_config['blind_est'])
-    print('kernel_size', list(map(int, arch_config['kernel_size'].split())))
-    print('sep_conv',arch_config['sep_conv'])
-    print('channel_att',arch_config['channel_att'])
-    print('spatial_att',arch_config['spatial_att'])
-    print('upMode'     ,arch_config['upMode'])
-    print('core_bias'  ,arch_config['core_bias'])
+    # print('burst_length',dataset_config['burst_length'])
+    # print('blind_est', arch_config['blind_est'])
+    # print('kernel_size', list(map(int, arch_config['kernel_size'].split())))
+    # print('sep_conv',arch_config['sep_conv'])
+    # print('channel_att',arch_config['channel_att'])
+    # print('spatial_att',arch_config['spatial_att'])
+    # print('upMode'     ,arch_config['upMode'])
+    # print('core_bias'  ,arch_config['core_bias'])
 
     if cuda:
         model = model.cuda()
@@ -120,15 +115,15 @@ def train(config, in_channel, num_workers, num_threads, cuda, restart_train, mGP
     # print(model)
 
     # loss function here
-    loss_func = LossFunc(
-        coeff_basic=1.0,
-        coeff_anneal=1.0,
-        gradient_L1=True,
-        alpha=arch_config['alpha'],
-        beta=arch_config['beta']
-    )
+    # loss_func = LossFunc(
+    #     coeff_basic=1.0,
+    #     coeff_anneal=1.0,
+    #     gradient_L1=True,
+    #     alpha=arch_config['alpha'],
+    #     beta=arch_config['beta']
+    # )
     # loss_func = nn.L1Loss()
-    # loss_func = nn.MSELoss()
+    loss_func = nn.MSELoss()
     # loss_func = CharbonnierPenalty(10, total_variation=False, per_pixel=False)
 
     # Optimizer here
@@ -204,22 +199,19 @@ def train(config, in_channel, num_workers, num_threads, cuda, restart_train, mGP
             if cuda:
                 input = input.cuda()
                 #input = torch.sum(input, dim=1,keepdim=True)
-                label = label.float().cuda()
+                label = label.float().cuda() 
             # print('white_level', white_level, white_level.size())
 
-            # default white_level = 1.0
-            pred_i, pred = model(input, input[:, 0:burst_length, ...], white_level=1)
-            # pred = model(input)
+            #
+            pred = model(input)
 
-
-            #! no need to do unsqueeze anymore; dimension already reduced in the mean function of the KernelConv 
-            # if len(list(label.shape)) == 3:
-            #     label = torch.unsqueeze(label,1)
+            if len(list(label.shape)) == 3:
+                label = torch.unsqueeze(label,1)
 
             #
-            loss_basic, loss_anneal = loss_func(pred_i, pred, label, global_step)
-            loss = loss_basic + loss_anneal
-            # loss = loss_func(pred,label)
+            # loss_basic, loss_anneal = loss_func(sRGBGamma(pred_i), sRGBGamma(pred), sRGBGamma(gt), global_step)
+            # loss = loss_basic + loss_anneal
+            loss = loss_func(pred,label)
             # print("loss",loss)
             # backward
             optimizer.zero_grad()
@@ -237,8 +229,8 @@ def train(config, in_channel, num_workers, num_threads, cuda, restart_train, mGP
             psnr = calculate_psnr(pred,label)
             ssim = calculate_ssim(pred,label)
             # add scalars to tensorboardX
-            log_writer.add_scalar('loss_basic', loss_basic, global_step)
-            log_writer.add_scalar('loss_anneal', loss_anneal, global_step)
+            # log_writer.add_scalar('loss_basic', loss_basic, global_step)
+            # log_writer.add_scalar('loss_anneal', loss_anneal, global_step)
             log_writer.add_scalar('loss_total', loss, global_step)
             log_writer.add_scalar('psnr', psnr, global_step)
             log_writer.add_scalar('ssim', ssim, global_step)
@@ -368,14 +360,9 @@ def eval(config, args):
                     #input = torch.sum(input, dim=1,keepdim=True)
                     label = label.float().cuda()
 
-                # pred = model(input)
-                pred_i, pred = model(input, input[:, 0:burst_length, ...], white_level=1)
-
-                #! no need to do unsqueeze anymore; dimension already reduced in the mean function of the KernelConv 
-                # if len(list(label.shape)) == 3:
-                #     label = torch.unsqueeze(label,1)
-
-
+                pred = model(input)
+                if len(list(label.shape)) == 3:
+                    label = torch.unsqueeze(label,1)
                 # pred_i = sRGBGamma(pred_i)
                 # pred = sRGBGamma(pred)
                 # gt = sRGBGamma(gt)
@@ -387,7 +374,7 @@ def eval(config, args):
                 psnr += psnr_t
                 ssim += ssim_t
 
-                pred = torch.clamp(pred, 0.0, 1.0)
+                # pred = torch.clamp(pred, 0.0, 1.0)
 
                 if args.cuda:
                     pred = pred.cpu()
@@ -412,7 +399,7 @@ if __name__ == '__main__':
     parser.add_argument('--config_file', dest='config_file', default='kpn_specs/kpn_config.conf', help='path to config file')
     parser.add_argument('--config_spec', dest='config_spec', default='kpn_specs/configspec.conf', help='path to config spec file')
     parser.add_argument('--restart', action='store_true', help='Whether to remove all old files and restart the training process')
-    parser.add_argument('--train_dir', type=str, default='../test_images/', help='the path to training dataset')
+    parser.add_argument('--train_dir', type=str, default='../train/', help='the path to training dataset')
     parser.add_argument('--num_workers', '-nw', default=4, type=int, help='number of workers in data loader')
     parser.add_argument('--num_threads', '-nt', default=8, type=int, help='number of threads in data loader')
     parser.add_argument('--cuda', '-c', action='store_true', help='whether to train on the GPU')
@@ -429,4 +416,4 @@ if __name__ == '__main__':
     if args.eval:
         eval(config, args)
     else:
-        train(config, args.in_channel, args.num_workers, args.num_threads, args.cuda, args.restart, args.mGPU, args.train_dir)
+        train(config, args.in_channel, args.num_workers, args.num_threads, args.cuda, args.restart, args.mGPU, args.train_dir, args.label_dir)
