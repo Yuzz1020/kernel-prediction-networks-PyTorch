@@ -28,7 +28,7 @@ class MovingAverage(object):
         return self.mean
 
 
-def save_checkpoint(state, is_best, checkpoint_dir, n_iter, max_keep=10):
+def save_checkpoint(state, is_best, checkpoint_dir, n_iter, max_keep=2):
     filename = os.path.join(checkpoint_dir, "{:06d}.pth.tar".format(n_iter))
     torch.save(state, filename)
     if is_best:

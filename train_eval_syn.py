@@ -7,6 +7,7 @@ from torch.utils.data import DataLoader
 
 import numpy as np
 import argparse
+import random
 
 import os, sys, time, shutil
 
@@ -75,7 +76,7 @@ def train(config, in_channel, num_workers, num_threads, cuda, restart_train, mGP
     #     num_workers=num_workers
     # )
     dataset_config = read_config(train_config['dataset_configs'], _configspec_path())['dataset_configs']
-    data = Customized_dataset(train_config['dataset_configs'], train_dir, transform=None)#初始化类，设置数据集所在路径以及变换
+    data = Customized_dataset(train_config['dataset_configs'], train_dir, train_config['local_window_size'], transform=None)#初始化类，设置数据集所在路径以及变换
     # print('data',data)
     data_loader = DataLoader(
         data,
@@ -311,13 +312,12 @@ def eval(config, args):
     # )
 
     dataset_config = read_config(train_config['dataset_configs'], _configspec_path())['dataset_configs']
-    data = Customized_dataset(train_config['dataset_configs'], args.train_dir, transform=None, train=False)#初始化类，设置数据集所在路径以及变换
+    data = Customized_dataset(train_config['dataset_configs'], args.train_dir, train_config['local_window_size'], transform=None, train=False)#初始化类，设置数据集所在路径以及变换
     # print('data',data)
     data_loader = DataLoader(
         data,
-        # TODO:
-        # batch_size=batch_size,
-        batch_size=1,
+        batch_size=train_config["batch_size"],
+        #batch_size=1,
         shuffle=True,
         num_workers=args.num_workers
     )
@@ -352,13 +352,13 @@ def eval(config, args):
     burst_length = dataset_config['burst_length']
     data_length = burst_length if arch_config['blind_est'] else burst_length + 1
     patch_size = dataset_config['patch_size']
-
+    
+    num_frames=10
     trans = transforms.ToPILImage()
-
+    eval_batch = random.randint(0, num_frames-1)
     with torch.no_grad():
         psnr = 0.0
         ssim = 0.0
-        num_frames=100
         for i, (input,label) in enumerate(data_loader):
             if i < num_frames:
                 # data = next(data_loader)
@@ -393,12 +393,13 @@ def eval(config, args):
                     pred = pred.cpu()
                     # gt = gt.cpu()
                     # burst_noise = burst_noise.cpu()
-
-                # trans(burst_noise[0, 0, ...].squeeze()).save(os.path.join(eval_dir, '{}_noisy_{:.2f}dB.png'.format(i, psnr_noisy)), quality=100)
-                trans(pred.squeeze()).save(os.path.join(eval_dir, '{}_pred_{:.2f}dB.png'.format(i, psnr_t)), quality=100)
-                trans(label.squeeze()).save(os.path.join(eval_dir, '{}_gt.png'.format(i)), quality=100)
-                for ti in range(10):
-                    trans(((input[0,ti]).float()).squeeze()).save(os.path.join(eval_dir, '{}_gt_{}.png'.format(i, ti)), quality=100)
+                if i == eval_batch:
+                    for img_b in range(train_config["batch_size"]):
+                        # trans(burst_noise[0, 0, ...].squeeze()).save(os.path.join(eval_dir, '{}_noisy_{:.2f}dB.png'.format(i, psnr_noisy)), quality=100)
+                        trans(pred[img_b].squeeze()).save(os.path.join(eval_dir, '{}_pred_{:.2f}dB.png'.format(img_b, psnr_t)), quality=100)
+                        trans(label[img_b].squeeze()).save(os.path.join(eval_dir, '{}_gt.png'.format(img_b)), quality=100)
+                        for ti in range(4):
+                            trans(((input[img_b][ti]).float()).squeeze()).save(os.path.join(eval_dir, '{}_gt_{}.png'.format(img_b, ti)), quality=100)
 
                 print('{}-th image is OK, with PSNR: {:.2f}dB, SSIM: {:.4f}'.format(i, psnr_t, ssim_t))
             else:

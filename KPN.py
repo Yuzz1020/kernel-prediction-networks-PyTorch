@@ -120,7 +120,6 @@ class KPN(nn.Module):
         # return channel K*K*N
         core = self.outc(F.interpolate(conv8, scale_factor=2, mode=self.upMode))
         # return self.pw(self.dw(torch.cat([core,data], dim=1)))
-
         return self.kernel_pred(data, core, white_level)
 
 

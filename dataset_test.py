@@ -70,6 +70,30 @@ def convert_video_to_images(video_paths, image_path):
             count += 1
     return count
 
+def convert_video_to_numpy(video_paths, image_path, batch_size, overlap_size=0):
+    batch_count = 0
+    count = 0
+    for video_path in video_paths:
+        success = True
+        image_list = []
+        count = 0
+        while success:
+            vidcap = cv2.VideoCapture(video_path)
+            success, image = vidcap.read()
+            if success:
+                image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY).reshape(1,image.shape[0], image.shape[1])
+                image_list.append(image)
+                count += 1
+                if (count) % batch_size == 0:
+                    image = np.concatenate(image_list, axis=0)
+                    np.save(image_path + "frame%d.npy" % batch_count, image)
+                    print("batch {} saved".format(batch_count), ", ", image.shape)
+                    batch_count += 1
+                    image_list = image_list[-overlap_size:]
+                    count = count - (batch_size-overlap_size)
+    return batch_count
+                    
+
 #read images into greayscale and add poisson noise
 def read_images(image_path, train_path, label_path, image_count, oversampled_rate=50):
     if not os.path.exists(train_path):
@@ -107,16 +131,21 @@ for f in os.listdir("../original_high_fps_videos/"):
     if "GOPR9646.mp4" not in f:
         video_list.append("../original_high_fps_videos/"+f)
 
-#training images
-img_count = convert_video_to_images(video_list, "../test_images/")
-print("total images: ", img_count)
 
-# no longer needed; merged to the dataloader
-# read_images("../test_images/","../train/","../label/", 121340)
+#training images
+img_count = convert_video_to_numpy(video_list, "../test_images_np/",257)
+print("total batches: ", img_count)
 
 #evaluation images
-img_count = convert_video_to_images(["../original_high_fps_videos/GOPR9646.mp4"], "../eval_images/")
-print("total images: ", img_count)
+img_count = convert_video_to_numpy(["../original_high_fps_videos/GOPR9646.mp4"], "../eval_images_np/", 257)
+print("total batches: ", img_count)
 
-# no longer needed; merged to the dataloader
-# read_images("../eval_images/","../eval/","../eval_label/", 671)
+# #training images
+# img_count = convert_video_to_images(video_list, "../test_images/")
+# print("total images: ", img_count)
+
+# #evaluation images
+# img_count = convert_video_to_images(["../original_high_fps_videos/GOPR9646.mp4"], "../eval_images/")
+# print("total images: ", img_count)
+
+
