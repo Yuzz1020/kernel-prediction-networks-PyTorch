@@ -31,7 +31,6 @@ from data_prepare import Customized_dataset
 #      TODO: can potentially integrated into the data generation process: add white level before binarization
 #TODO: include additional channel for the standard deviation estimation    --> not sure if applicable to the binarized frames; excluded for now
 #TODO: not sure if RGB degamma is necessary
-#TODO done: include misalignment for within a sinlge burst --> mimic motion 
 
 
 def train(config, in_channel, num_workers, num_threads, cuda, restart_train, mGPU, train_dir):
@@ -82,14 +81,18 @@ def train(config, in_channel, num_workers, num_threads, cuda, restart_train, mGP
         data,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=num_workers
+        num_workers=num_workers,
+        drop_last=True 
     )
-    # dataloader = DataLoader(data,batch_size=3,shuffle=True)#使用DataLoader加载数据
-    # for i_batch,batch_data in enumerate(dataloader):
-    #     print(i_batch)#打印batch编号
-    #     print(batch_data['image'].size())#打印该batch里面图片的大小
-    #     print(batch_data['label'])#打印该batch里面图片的标签
-
+    test_dir = args.test_dir
+    test_data = Customized_dataset(train_config['dataset_configs'], test_dir, train_config['local_window_size'], transform=None)#初始化类，设置数据集所在路径以及变换
+    test_data_loader = DataLoader(
+        test_data,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        drop_last=True 
+    )
     # model here
     model = KPN(
         color=False,
@@ -188,6 +191,7 @@ def train(config, in_channel, num_workers, num_threads, cuda, restart_train, mGP
     burst_length = dataset_config['burst_length']
     data_length = burst_length if arch_config['blind_est'] else burst_length+1
     patch_size = dataset_config['patch_size']
+    #data.self_check()
 
     for epoch in range(start_epoch, n_epoch):
         epoch_start_time = time.time()
@@ -201,10 +205,10 @@ def train(config, in_channel, num_workers, num_threads, cuda, restart_train, mGP
         print('='*20, 'lr={}'.format([param['lr'] for param in optimizer.param_groups]), '='*20)
         t1 = time.time()
         for step, (input, label) in enumerate(data_loader):
+            model.train()
             size = input.size()
             if cuda:
                 input = input.cuda()
-                #input = torch.sum(input, dim=1,keepdim=True)
                 label = label.float().cuda()
             # print('white_level', white_level, white_level.size())
 
@@ -217,11 +221,8 @@ def train(config, in_channel, num_workers, num_threads, cuda, restart_train, mGP
             # if len(list(label.shape)) == 3:
             #     label = torch.unsqueeze(label,1)
 
-            #
             loss_basic, loss_anneal = loss_func(pred_i, pred, label, global_step)
             loss = loss_basic + loss_anneal
-            # loss = loss_func(pred,label)
-            # print("loss",loss)
             # backward
             optimizer.zero_grad()
             loss.backward()
@@ -229,10 +230,6 @@ def train(config, in_channel, num_workers, num_threads, cuda, restart_train, mGP
             # update the average loss
             average_loss.update(loss)
             
-            #if step >50:
-            #    cv2.imwrite("test.jpg", (pred.data.cpu().squeeze().numpy()*255).astype(np.uint8))
-            #    print(label)
-            #    exit()
             
             # calculate PSNR
             psnr = calculate_psnr(pred,label)
@@ -244,10 +241,12 @@ def train(config, in_channel, num_workers, num_threads, cuda, restart_train, mGP
             log_writer.add_scalar('psnr', psnr, global_step)
             log_writer.add_scalar('ssim', ssim, global_step)
             log_writer.add_scalar('learning_rate', lr_cur, global_step)
-            # print
-            print('{:-4d}\t| epoch {:2d}\t| step {:4d}\t| loss: {:.4f}\t| PSNR: {:.2f}dB\t| SSIM: {:.4f}\t| time:{:.2f} seconds.'
-                  .format(global_step, epoch, step, loss, psnr, ssim, time.time()-t1))
-            t1 = time.time()
+            if step % args.print_freq == 0:
+                # print
+                print('{:-4d}\t| epoch {:2d}\t| step {:4d}\t| loss: {:.4f}\t| PSNR: {:.2f}dB\t| SSIM: {:.4f}\t| time:{:.2f} seconds.'
+                    .format(global_step, epoch, step, loss, psnr, ssim, time.time()-t1))
+                t1 = time.time()
+                test(model, test_data_loader, burst_length,cuda)
             # global_step
             global_step += 1
 
@@ -275,6 +274,26 @@ def train(config, in_channel, num_workers, num_threads, cuda, restart_train, mGP
 
         print('Epoch {} is finished, time elapsed {:.2f} seconds.'.format(epoch, time.time()-epoch_start_time))
 
+
+def test(model, loader,burst_length,cuda):
+    model.eval()
+    psnr_list = []
+    ssim_list = []
+    with torch.no_grad():
+        for step, (input, label) in enumerate(loader):
+            size = input.size()
+            if cuda:
+                input = input.cuda()
+                label = label.float().cuda()
+            pred_i, pred = model(input, input[:, 0:burst_length, ...], white_level=1)
+            # calculate PSNR
+            psnr = calculate_psnr(pred,label)
+            ssim = calculate_ssim(pred,label)
+            psnr_list.append(psnr)
+            ssim_list.append(ssim)
+    print('Test PSNR: {:.2f}dB, SSIM: {:.4f}'.format(np.mean(psnr_list), np.mean(ssim_list)))
+    model.train()
+    return np.mean(psnr_list), np.mean(ssim_list)
 
 def eval(config, args):
     train_config = config['training']
@@ -352,7 +371,8 @@ def eval(config, args):
     burst_length = dataset_config['burst_length']
     data_length = burst_length if arch_config['blind_est'] else burst_length + 1
     patch_size = dataset_config['patch_size']
-    
+
+
     num_frames=10
     trans = transforms.ToPILImage()
     eval_batch = random.randint(0, num_frames-1)
@@ -413,15 +433,17 @@ if __name__ == '__main__':
     parser.add_argument('--config_file', dest='config_file', default='kpn_specs/kpn_config.conf', help='path to config file')
     parser.add_argument('--config_spec', dest='config_spec', default='kpn_specs/configspec.conf', help='path to config spec file')
     parser.add_argument('--restart', action='store_true', help='Whether to remove all old files and restart the training process')
-    parser.add_argument('--train_dir', type=str, default='../test_images/', help='the path to training dataset')
-    parser.add_argument('--num_workers', '-nw', default=4, type=int, help='number of workers in data loader')
-    parser.add_argument('--num_threads', '-nt', default=8, type=int, help='number of threads in data loader')
+    parser.add_argument('--train_dir', type=str, default='/scratch/yz87/test_images/', help='the path to training dataset')
+    parser.add_argument('--test_dir', type=str, default='/scratch/yz87/eval_images/', help='the path to evaluation dataset')
+    parser.add_argument('--num_workers', '-nw', default=16, type=int, help='number of workers in data loader')
+    parser.add_argument('--num_threads', '-nt', default=32, type=int, help='number of threads in data loader')
     parser.add_argument('--cuda', '-c', action='store_true', help='whether to train on the GPU')
     parser.add_argument('--mGPU', '-m', action='store_true', help='whether to train on multiple GPUs')
     parser.add_argument('--eval', action='store_true', help='whether to work on the evaluation mode')
     parser.add_argument('--checkpoint', '-ckpt', dest='checkpoint', type=str, default='best',
                         help='the checkpoint to eval')
     parser.add_argument('--in_channel', type=int,           default=50,help='the input channel')
+    parser.add_argument("--print_freq", "-pf", default=100, type=int, help="print frequency")
     args = parser.parse_args()
     #
     

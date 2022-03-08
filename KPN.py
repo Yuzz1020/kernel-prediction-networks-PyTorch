@@ -150,9 +150,9 @@ class KernelConv(nn.Module):
         core_out = {}
         cur = 0
         for K in self.kernel_size:
-            t1 = core_1[:, :, cur:cur + K, ...].view(batch_size, N, K, 1, 3, height, width)
-            t2 = core_2[:, :, cur:cur + K, ...].view(batch_size, N, 1, K, 3, height, width)
-            core_out[K] = torch.einsum('ijklno,ijlmno->ijkmno', [t1, t2]).view(batch_size, N, K * K, color, height, width)
+            t1 = core_1[:, :, cur:cur + K, ...].view(batch_size, N, K, 1, color, height, width)
+            t2 = core_2[:, :, cur:cur + K, ...].view(batch_size, N, 1, K, color, height, width)
+            core_out[K] = torch.einsum('ijklcno,ijlmcno->ijkmcno', [t1, t2]).view(batch_size, N, K * K, color, height, width)
             cur += K
         # it is a dict
         return core_out, None if not self.core_bias else core_3.squeeze()
@@ -164,9 +164,10 @@ class KernelConv(nn.Module):
         :return: core_out, a dict
         """
         core_out = {}
-        core = core.view(batch_size, N, -1, color, height, width)
-        core_out[self.kernel_size[0]] = core[:, :, 0:self.kernel_size[0]**2, ...]
-        bias = None if not self.core_bias else core[:, :, -1, ...]
+        for K in self.kernel_size:
+            core = core.view(batch_size, N, -1, color, height, width)
+            core_out[K] = core[:, :, 0:K**2, ...]
+            bias = None if not self.core_bias else core[:, :, -1, ...]
         return core_out, bias
 
     def forward(self, frames, core, white_level=1.0):
@@ -190,7 +191,7 @@ class KernelConv(nn.Module):
         pred_img = []
         kernel = self.kernel_size[::-1]
         for index, K in enumerate(kernel):
-            if not img_stack:
+            if len(img_stack)==0:
                 frame_pad = F.pad(frames, [K // 2, K // 2, K // 2, K // 2])
                 for i in range(K):
                     for j in range(K):
@@ -198,8 +199,7 @@ class KernelConv(nn.Module):
                 img_stack = torch.stack(img_stack, dim=2)
             else:
                 k_diff = (kernel[index - 1] - kernel[index]) // 2
-                img_stack = img_stack[:, :, k_diff:-k_diff, ...]
-            # print('img_stack:', img_stack.size())
+                img_stack = img_stack.reshape(batch_size, N , kernel[index - 1], kernel[index - 1], color, height, width)[:, :, k_diff:-k_diff, k_diff:-k_diff, ...].reshape(batch_size, N, kernel[index]**2, color,height,width )
             pred_img.append(torch.sum(
                 core[K].mul(img_stack), dim=2, keepdim=False
             ))

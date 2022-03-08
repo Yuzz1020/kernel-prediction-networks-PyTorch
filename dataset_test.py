@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 import os
-
+from tqdm import tqdm
 # reserved for future use: no oversampling; directly add the poisson noise and concatenate images
 # #read images into greayscale and add poisson noise
 # def read_images(image_path, image_count):
@@ -69,8 +69,26 @@ def convert_video_to_images(video_paths, image_path):
             print('Read a new frame: ', success)
             count += 1
     return count
+def convert_video_to_images_with_subfolder(video_paths, image_path,image_size = (128,128)):
+    video_frame_count = {}
+    count = 0
+    for video_path in tqdm(video_paths):
+        count = 0
+        os.mkdir(image_path + video_path.split("/")[-1])
+        vidcap = cv2.VideoCapture(video_path)
+        success, image = vidcap.read()
+        while success:
+            #! moved the crop to the dataset loader
+            # image = crop_random(image, 2, 640, 640)
+            image = cv2.resize(image, image_size, interpolation=cv2.INTER_LINEAR)
+            image=cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            cv2.imwrite(image_path + video_path.split("/")[-1] + "/frame%d.jpg" % count, image)  # save frame as JPEG file
+            success, image = vidcap.read()
+            count += 1
+        video_frame_count[video_path.split("/")[-1]] = count
+    return count
 
-def convert_video_to_numpy(video_paths, image_path, batch_size, overlap_size=0):
+def convert_video_to_numpy(video_paths, image_path, batch_size, overlap_size=0, skip_size=0):
     batch_count = 0
     count = 0
     for video_path in video_paths:
@@ -89,7 +107,10 @@ def convert_video_to_numpy(video_paths, image_path, batch_size, overlap_size=0):
                     np.save(image_path + "frame%d.npy" % batch_count, image)
                     print("batch {} saved".format(batch_count), ", ", image.shape)
                     batch_count += 1
-                    image_list = image_list[-overlap_size:]
+                    if overlap_size > 0:
+                        image_list = image_list[-overlap_size:]
+                    else:
+                        image_list = []
                     count = count - (batch_size-overlap_size)
     return batch_count
                     
@@ -126,19 +147,29 @@ def read_images(image_path, train_path, label_path, image_count, oversampled_rat
         np.save(train_path + "frame%d.npy" % i, images_np)
 
 video_list=[]
-for f in os.listdir("../original_high_fps_videos/"):
+for f in os.listdir("/scratch/yz87/original_high_fps_videos/"):
     print(f)
-    if "GOPR9646.mp4" not in f:
-        video_list.append("../original_high_fps_videos/"+f)
+    if "720p_240fps_3.mov" not in f and "GOPR9650.mp4" not in f:
+        video_list.append("/scratch/yz87/original_high_fps_videos/"+f)
+
 
 
 #training images
-img_count = convert_video_to_numpy(video_list, "../test_images_np/",257)
-print("total batches: ", img_count)
+img_count = convert_video_to_images_with_subfolder(video_list, "/scratch/yz87/test_images/")
+print("total images: ", img_count)
 
 #evaluation images
-img_count = convert_video_to_numpy(["../original_high_fps_videos/GOPR9646.mp4"], "../eval_images_np/", 257)
-print("total batches: ", img_count)
+img_count = convert_video_to_images_with_subfolder(["/scratch/yz87/original_high_fps_videos/GOPR9650.mp4", "/scratch/yz87/original_high_fps_videos/720p_240fps_3.mov"], "/scratch/yz87/eval_images/")
+print("total images: ", img_count)
+
+
+# #training images
+# img_count = convert_video_to_numpy(video_list, "../test_images_np/",257)
+# print("total batches: ", img_count)
+
+# #evaluation images
+# img_count = convert_video_to_numpy(["../original_high_fps_videos/GOPR9646.mp4"], "../eval_images_np/", 257)
+# print("total batches: ", img_count)
 
 # #training images
 # img_count = convert_video_to_images(video_list, "../test_images/")

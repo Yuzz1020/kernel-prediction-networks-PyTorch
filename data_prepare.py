@@ -12,6 +12,8 @@ import inspect
 from utils.training_util import read_config
 from data_generation.data_utils import *
 import torch.nn.functional as F
+import re
+import copy
 class Random_Horizontal_Flip(object):
     def __init__(self, p=0.5):
         self.p = p
@@ -40,10 +42,25 @@ class Customized_dataset(Dataset): #继承Dataset
         self.dataset_dir = train_dir
         self.train_dir = train_dir   #文件目录
         self.transform = transform #变换
-        self.input = os.listdir(self.train_dir)#目录里的所有文件
-
+        self.video_list = os.listdir(self.train_dir)#目录里的所有文件
+        self.input = []
+        self.video_max_size = {}
         self.burst_size = self.dataset_config['burst_length']
         self.patch_size = self.dataset_config['patch_size']
+        self.oversample_rate = self.local_window_size//2
+        self.frame_range = (self.burst_size * self.local_window_size) // self.oversample_rate + 1
+        if self.frame_range % 2 == 0:
+            raise Exception("frame_range should be odd")
+        print("frame_range:", self.frame_range)
+        for video in self.video_list:
+            img_lst = os.listdir(os.path.join(self.train_dir, video))
+            self.video_max_size[video] = len(img_lst)
+            for img in img_lst:
+                frame_id = int(re.findall(r'\d+', img)[0])
+                if frame_id < self.frame_range//2 or frame_id >= self.video_max_size[video] - self.frame_range//2:
+                    continue
+                else:
+                    self.input.append(os.path.join(video, img))
 
         self.upscale = self.dataset_config['down_sample']
         self.big_jitter = self.dataset_config['big_jitter']
@@ -81,121 +98,36 @@ class Customized_dataset(Dataset): #继承Dataset
         return random_crop(tensor, 1, patch_size)[0]
 
 
-    # def __getitem__(self,index):#根据索引index返回dataset[index]
-    #     # print(index)
-    #     image = Image.open(os.path.join(self.dataset_dir, self.input[index]))
-    #     if not self.color:
-    #         image = ImageOps.grayscale(image)
-    #     else: 
-    #         raise Exception("Only gray scale is supported")
-    #     # 先转换为Tensor进行degamma
-    #     image = transforms.ToTensor()(image)
 
+    def __getitem__(self,index):#根据索引index返回dataset[index]
+        if self.color:
+            raise Exception("Only gray scale is supported")
+        image = Image.open(os.path.join(self.dataset_dir, self.input[index]))
+        # image = ImageOps.grayscale(image)
+        label = transforms.ToTensor()(image)
+        video_name = self.input[index].split('/')[0]
+        img_name = self.input[index].split('/')[1]
+        frame_id = int(re.findall(r'\d+', img_name)[0])
+        frames = range(frame_id - self.frame_range//2, frame_id + self.frame_range//2 + 1)
+        image_list= []
+        starting_id=frames[0]
+        for i in frames:
+            if i == starting_id:
+                continue
+            img_name = video_name + '/' + 'frame' + str(i) + '.jpg'
+            image = Image.open(os.path.join(self.dataset_dir, img_name))
+            # image = ImageOps.grayscale(image)
+            image = transforms.ToTensor()(image)
+            image_list.append(image)
+        image = torch.cat(image_list, dim=0)
 
-    #     image_crop = self.crop_random(image, self.size_upscale)
-    #     # N*H*W  对应于较小jitter下
-    #     image_crop_small = image_crop[:, self.delta_upscale:-self.delta_upscale,
-    #                                     self.delta_upscale:-self.delta_upscale]
-
-    #     # 进一步进行random_crop所需的transform
-
-    #     # burst中的第一个不做偏移  后期作为target
-    #     # output shape: N*3*H*W
-    #     img_burst = []
-    #     for i in range(self.burst_size+1):
-    #         if i == 0:
-    #             img_burst.append(
-    #                 image_crop[:, self.jitter_upscale:-self.jitter_upscale, self.jitter_upscale:-self.jitter_upscale]
-    #             )
-    #         else:
-    #             if np.random.binomial(1, min(1.0, np.random.poisson(lam=1.5) / self.burst_size)) == 0:
-    #                 img_burst.append(
-    #                     self.crop_random(
-    #                         image_crop_small, self.patch_size_upscale
-    #                     )
-    #                 )
-    #             else:  #big
-    #                 img_burst.append(
-    #                     self.crop_random(image_crop, self.patch_size_upscale)
-    #                 )
-    #     image_burst = torch.stack(img_burst, dim=0)
-    #     image_burst = F.adaptive_avg_pool2d(image_burst, (self.patch_size, self.patch_size))
-
-    #     # label为patch中burst的第一个
-    #     if not self.color:
-    #         # image_burst = 0.2989*image_burst[:, 0, ...] + 0.5870 * image_burst[:, 1, ...] + 0.1140*image_burst[:, 2, ...]
-    #         image_burst = torch.clamp(image_burst, 0.0, 1.0)
-    #     else:
-    #         raise Exception("Only gray scale is supported")
-
-
-    #     if self.train:
-    #         # data augment
-    #         image_burst = self.horizontal_flip(image_burst)
-    #         image_burst = self.vertical_flip(image_burst)
-
-    #     label = image_burst[0, ...]
-    #     img = image_burst[1:, ...]
-
-    #     #TODO: potentially add degamma and white level
-
-    #     # generate the binary frames burst
-    #     local_summation_window = 40 # 局部窗口大小
-    #     img = torch.poisson(img.repeat(1,local_summation_window,1,1))
-    #     img = (img > 0).float()
-    #     img = torch.mean(img, dim=1)
-    #     return img.squeeze(),label.squeeze() #返回该样本
-
-    # version to handle moving scenes
-    def __getitem__(self, index):
-        image = np.load(os.path.join(self.dataset_dir, self.input[index]))
-        image = torch.from_numpy(image)
 
         # over-sample the image between the frames
-        oversample_rate = 1 
-        image = image.repeat(1,oversample_rate,1).reshape(image.shape[0]*oversample_rate, image.shape[1],image.shape[2])
+        image = image.repeat(1,self.oversample_rate,1).reshape(image.shape[0]*self.oversample_rate, image.shape[1],image.shape[2])
         image = F.adaptive_avg_pool2d(image, (self.patch_size, self.patch_size))
-
-        if image.shape[0] % 2 == 0:
-            image = image[:-1, ...]
-        label = image[image.shape[0]//2, ...]
-        img = torch.cat([image[:image.shape[0]//2, ...], image[image.shape[0]//2+1:, ...]], dim=0)
-
-        img = img.reshape(self.burst_size, -1, img.shape[1], img.shape[2])
-        img = torch.poisson(img)
-        img = (img > 0).float()
-        img = torch.mean(img, dim=1)
-        return img.squeeze(),label.squeeze() #返回该样本
-
-    # def __getitem__(self,index):#根据索引index返回dataset[index]
-    #     # print(index)
-    #     image = Image.open(os.path.join(self.dataset_dir, self.input[index]))
-    #     if not self.color:
-    #         image = ImageOps.grayscale(image)
-    #     else: 
-    #         raise Exception("Only gray scale is supported")
-    #     # 先转换为Tensor进行degamma
-    #     image = transforms.ToTensor()(image)
-
-    #     # output shape: N*1*H*W
-    #     image_burst = image.repeat(self.burst_size+1,1,1,1)
-    #     image_burst = F.adaptive_avg_pool2d(image_burst, (self.patch_size, self.patch_size))
-
-    #     # label为patch中burst的第一个
-    #     if not self.color:
-    #         # image_burst = 0.2989*image_burst[:, 0, ...] + 0.5870 * image_burst[:, 1, ...] + 0.1140*image_burst[:, 2, ...]
-    #         image_burst = torch.clamp(image_burst, 0.0, 1.0)
-    #     else:
-    #         raise Exception("Only gray scale is supported")
-
-    #     label = image_burst[0, ...]
-    #     img = image_burst[1:, ...]
-
-    #     #TODO: potentially add degamma and white level
-
-    #     # generate the binary frames burst
-    #     local_summation_window = self.local_window_size # 局部窗口大小
-    #     img = torch.poisson(img.repeat(1,local_summation_window,1,1))
-    #     img = (img > 0).float()
-    #     img = torch.mean(img, dim=1)
-    #     return img.squeeze(),label.squeeze() #返回该样本
+        
+        image = image.reshape(self.burst_size, -1, image.shape[1], image.shape[2])
+        image = torch.poisson(image)
+        image = (image > 0).float()
+        image = torch.mean(image, dim=1)
+        return image.squeeze(),label.squeeze() #返回该样本
