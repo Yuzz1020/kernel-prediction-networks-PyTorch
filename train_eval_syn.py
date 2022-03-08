@@ -34,8 +34,6 @@ from data_prepare import Customized_dataset
 
 
 def train(config, in_channel, num_workers, num_threads, cuda, restart_train, mGPU, train_dir):
-    # torch.set_num_threads(num_threads)
-
     train_config = config['training']
     arch_config = config['architecture']
 
@@ -60,23 +58,8 @@ def train(config, in_channel, num_workers, num_threads, cuda, restart_train, mGP
     shutil.rmtree(logs_dir)
     log_writer = SummaryWriter(logs_dir)
 
-    # dataset and dataloader
-    # data_set = TrainDataSet(
-    #     train_config['dataset_configs'],
-    #     img_format='.bmp',
-    #     degamma=True,
-    #     color=False,
-    #     blind=arch_config['blind_est']
-    # )
-    # data_loader = DataLoader(
-    #     data_set,
-    #     batch_size=batch_size,
-    #     shuffle=True,
-    #     num_workers=num_workers
-    # )
     dataset_config = read_config(train_config['dataset_configs'], _configspec_path())['dataset_configs']
     data = Customized_dataset(train_config['dataset_configs'], train_dir, train_config['local_window_size'], transform=None)#初始化类，设置数据集所在路径以及变换
-    # print('data',data)
     data_loader = DataLoader(
         data,
         batch_size=batch_size,
@@ -121,7 +104,6 @@ def train(config, in_channel, num_workers, num_threads, cuda, restart_train, mGP
     if mGPU:
         model = nn.DataParallel(model)
     model.train()
-    # print(model)
 
     # loss function here
     loss_func = LossFunc(
@@ -314,29 +296,12 @@ def eval(config, args):
     for f in files:
         os.remove(os.path.join(eval_dir, f))
 
-    # dataset and dataloader
-    # data_set = TrainDataSet(
-    #     train_config['dataset_configs'],
-    #     img_format='.bmp',
-    #     degamma=True,
-    #     color=False,
-    #     blind=arch_config['blind_est'],
-    #     train=False
-    # )
-    # data_loader = DataLoader(
-    #     data_set,
-    #     batch_size=1,
-    #     shuffle=False,
-    #     num_workers=args.num_workers
-    # )
 
     dataset_config = read_config(train_config['dataset_configs'], _configspec_path())['dataset_configs']
     data = Customized_dataset(train_config['dataset_configs'], args.train_dir, train_config['local_window_size'], transform=None, train=False)#初始化类，设置数据集所在路径以及变换
-    # print('data',data)
     data_loader = DataLoader(
         data,
         batch_size=train_config["batch_size"],
-        #batch_size=1,
         shuffle=True,
         num_workers=args.num_workers
     )
@@ -381,14 +346,11 @@ def eval(config, args):
         ssim = 0.0
         for i, (input,label) in enumerate(data_loader):
             if i < num_frames:
-                # data = next(data_loader)
                 size = input.size()
                 if args.cuda:
                     input = input.cuda()
-                    #input = torch.sum(input, dim=1,keepdim=True)
                     label = label.float().cuda()
 
-                # pred = model(input)
                 pred_i, pred = model(input, input[:, 0:burst_length, ...], white_level=1)
 
                 #! no need to do unsqueeze anymore; dimension already reduced in the mean function of the KernelConv 
@@ -396,10 +358,6 @@ def eval(config, args):
                 #     label = torch.unsqueeze(label,1)
 
 
-                # pred_i = sRGBGamma(pred_i)
-                # pred = sRGBGamma(pred)
-                # gt = sRGBGamma(gt)
-                # burst_noise = sRGBGamma(burst_noise / white_level)
 
                 psnr_t = calculate_psnr(pred,label)
                 ssim_t = calculate_ssim(pred,label)
@@ -415,7 +373,6 @@ def eval(config, args):
                     # burst_noise = burst_noise.cpu()
                 if i == eval_batch:
                     for img_b in range(train_config["batch_size"]):
-                        # trans(burst_noise[0, 0, ...].squeeze()).save(os.path.join(eval_dir, '{}_noisy_{:.2f}dB.png'.format(i, psnr_noisy)), quality=100)
                         trans(pred[img_b].squeeze()).save(os.path.join(eval_dir, '{}_pred_{:.2f}dB.png'.format(img_b, psnr_t)), quality=100)
                         trans(label[img_b].squeeze()).save(os.path.join(eval_dir, '{}_gt.png'.format(img_b)), quality=100)
                         for ti in range(4):

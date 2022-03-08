@@ -72,6 +72,10 @@ class KPN(nn.Module):
         out_channel = (3 if color else 1) * (2 * sum(kernel_size) if sep_conv else np.sum(np.array(kernel_size) ** 2)) * burst_length
         if core_bias:
             out_channel += (3 if color else 1) * burst_length
+            
+        # separate motion elimination and denoising
+        # out_channel = out_channel * 2
+
         # 各个卷积层定义
         # 2~5层都是均值池化+3层卷积
         self.conv1 = Basic(in_channel, 64, channel_att=False, spatial_att=False)
@@ -84,8 +88,7 @@ class KPN(nn.Module):
         self.conv7 = Basic(256+512, 256, channel_att=channel_att, spatial_att=spatial_att)
         self.conv8 = Basic(256+128, out_channel, channel_att=channel_att, spatial_att=spatial_att)
         self.outc = nn.Conv2d(out_channel, out_channel, 1, 1, 0)
-        # self.dw = nn.Conv2d(out_channel+in_channel, out_channel+in_channel, kernel_size=3, stride=1, padding=1, groups=out_channel+in_channel)
-        # self.pw = nn.Conv2d(out_channel+in_channel, 1, kernel_size=1, stride=1, padding=0)
+
 
         self.kernel_pred = KernelConv(kernel_size, sep_conv, self.core_bias)
 
