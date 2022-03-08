@@ -47,7 +47,7 @@ class Customized_dataset(Dataset): #继承Dataset
         self.video_max_size = {}
         self.burst_size = self.dataset_config['burst_length']
         self.patch_size = self.dataset_config['patch_size']
-        self.oversample_rate = self.local_window_size//2
+        self.oversample_rate = self.local_window_size
         self.frame_range = (self.burst_size * self.local_window_size) // self.oversample_rate + 1
         if self.frame_range % 2 == 0:
             raise Exception("frame_range should be odd")
