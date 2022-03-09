@@ -174,7 +174,8 @@ def train(config, in_channel, num_workers, num_threads, cuda, restart_train, mGP
     data_length = burst_length if arch_config['blind_est'] else burst_length+1
     patch_size = dataset_config['patch_size']
     #data.self_check()
-
+    best_test_psnr = 0
+    best_test_ssim = 0
     for epoch in range(start_epoch, n_epoch):
         epoch_start_time = time.time()
         # decay the learning rate
@@ -228,7 +229,11 @@ def train(config, in_channel, num_workers, num_threads, cuda, restart_train, mGP
                 print('{:-4d}\t| epoch {:2d}\t| step {:4d}\t| loss: {:.4f}\t| PSNR: {:.2f}dB\t| SSIM: {:.4f}\t| time:{:.2f} seconds.'
                     .format(global_step, epoch, step, loss, psnr, ssim, time.time()-t1))
                 t1 = time.time()
-                test(model, test_data_loader, burst_length,cuda)
+                test_psnr, test_ssim = test(model, test_data_loader, burst_length,cuda)
+                if test_psnr > best_test_psnr:
+                    best_test_psnr = test_psnr
+                    best_test_ssim = test_ssim
+                print('Best Test PSNR: {:.2f}dB, SSIM: {:.4f}'.format(best_test_psnr, best_test_ssim))
             # global_step
             global_step += 1
 

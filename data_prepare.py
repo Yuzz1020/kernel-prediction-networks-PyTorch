@@ -14,6 +14,10 @@ from data_generation.data_utils import *
 import torch.nn.functional as F
 import re
 import copy
+from data_provider import OnTheFlyDataset, _configspec_path
+import argparse
+from utils.training_util import MovingAverage, save_checkpoint, load_checkpoint, read_config
+from utils.training_util import calculate_psnr, calculate_ssim
 class Random_Horizontal_Flip(object):
     def __init__(self, p=0.5):
         self.p = p
@@ -131,3 +135,72 @@ class Customized_dataset(Dataset): #继承Dataset
         image = (image > 0).float()
         image = torch.mean(image, dim=1)
         return image.squeeze(),label.squeeze() #返回该样本
+
+
+if __name__ == "__main__":
+    # argparse
+    parser = argparse.ArgumentParser(description='parameters for training')
+    parser.add_argument('--config_file', dest='config_file', default='kpn_specs/kpn_config.conf', help='path to config file')
+    parser.add_argument('--config_spec', dest='config_spec', default='kpn_specs/configspec.conf', help='path to config spec file')
+    parser.add_argument('--restart', action='store_true', help='Whether to remove all old files and restart the training process')
+    parser.add_argument('--train_dir', type=str, default='/scratch/yz87/test_images/', help='the path to training dataset')
+    parser.add_argument('--test_dir', type=str, default='/scratch/yz87/eval_images/', help='the path to evaluation dataset')
+    parser.add_argument('--num_workers', '-nw', default=16, type=int, help='number of workers in data loader')
+    parser.add_argument('--num_threads', '-nt', default=32, type=int, help='number of threads in data loader')
+    parser.add_argument('--cuda', '-c', action='store_true', help='whether to train on the GPU')
+    parser.add_argument('--mGPU', '-m', action='store_true', help='whether to train on multiple GPUs')
+    parser.add_argument('--eval', action='store_true', help='whether to work on the evaluation mode')
+    parser.add_argument('--checkpoint', '-ckpt', dest='checkpoint', type=str, default='best',
+                        help='the checkpoint to eval')
+    parser.add_argument('--in_channel', type=int,           default=50,help='the input channel')
+    parser.add_argument("--print_freq", "-pf", default=100, type=int, help="print frequency")
+    args = parser.parse_args()
+    #
+    
+
+    config = read_config(args.config_file, args.config_spec)  
+    config['train_dir'] = args.train_dir
+    config['test_dir'] = args.test_dir
+    config['num_workers'] = args.num_workers
+    config['num_threads'] = args.num_threads
+    config['cuda'] = args.cuda
+    config['mGPU'] = args.mGPU
+    config['eval'] = args.eval
+    config['checkpoint'] = args.checkpoint
+    config['in_channel'] = args.in_channel
+    config['print_freq'] = args.print_freq
+    config['restart'] = args.restart
+    train_config = config['training']
+    arch_config = config['architecture']
+
+    batch_size = train_config['batch_size']
+    lr = train_config['learning_rate']
+    weight_decay = train_config['weight_decay']
+    decay_step = train_config['decay_steps']
+    lr_decay = train_config['lr_decay']
+
+    n_epoch = train_config['num_epochs']
+    use_cache = train_config['use_cache']
+    trans = transforms.ToPILImage()
+
+    dataset_config = read_config(train_config['dataset_configs'], _configspec_path())['dataset_configs']
+    data = Customized_dataset(train_config['dataset_configs'], args.train_dir, train_config['local_window_size'], transform=None, train=False)#初始化类，设置数据集所在路径以及变换
+    data_loader = DataLoader(
+        data,
+        batch_size=train_config["batch_size"],
+        shuffle=True,
+        num_workers=args.num_workers
+    )
+    dataset_config = read_config(train_config['dataset_configs'], _configspec_path())['dataset_configs']
+    for i, (input1,label) in enumerate(data_loader):
+        print(input1.shape)
+        print(label.shape)
+        for img_b in range(train_config["batch_size"]):
+            trans(label[img_b].squeeze()).save(os.path.join("./dataset_test", '{}_gt.png'.format(img_b)), quality=100)
+            for ti in range(4):
+                trans(((input1[img_b][ti]).float()).squeeze()).save(os.path.join("./dataset_test", '{}_gt_{}.png'.format(img_b, ti)), quality=100)
+            for ti in range(4):
+                trans(((input1[img_b][63-ti]).float()).squeeze()).save(os.path.join("./dataset_test", '{}_gt_{}.png'.format(img_b, 63-ti)), quality=100)
+            trans(((torch.mean(input1[img_b],dim=0)).float()).squeeze()).save(os.path.join("./dataset_test", '{}_gt_avg.png'.format(img_b)), quality=100)
+            input("...")
+        input("....")
