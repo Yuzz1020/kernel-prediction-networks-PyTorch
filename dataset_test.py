@@ -51,7 +51,11 @@ def crop_random(img, scale_factor, w, h=None):
     # print(patch.shape)
     return patch
 
-
+def center_crop(img, crop_size):
+    h, w = img.shape[0], img.shape[1]
+    x = (w - crop_size[0]) // 2
+    y = (h - crop_size[1]) // 2
+    return img[y:y+crop_size[1], x:x+crop_size[0]]
 
 
 #convert mp4 to list of images
@@ -80,6 +84,7 @@ def convert_video_to_images_with_subfolder(video_paths, image_path,image_size = 
         while success:
             #! moved the crop to the dataset loader
             # image = crop_random(image, 2, 640, 640)
+            image = center_crop(image, (720,720))
             image = cv2.resize(image, image_size, interpolation=cv2.INTER_LINEAR)
             image=cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
             cv2.imwrite(image_path + video_path.split("/")[-1] + "/frame%d.jpg" % count, image)  # save frame as JPEG file
