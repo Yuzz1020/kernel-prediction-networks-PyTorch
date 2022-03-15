@@ -69,7 +69,7 @@ def convert_video_to_images(video_paths, image_path):
             print('Read a new frame: ', success)
             count += 1
     return count
-def convert_video_to_images_with_subfolder(video_paths, image_path,image_size = (128,128)):
+def convert_video_to_images_with_subfolder(video_paths, image_path,image_size = (192,192)):
     video_frame_count = {}
     count = 0
     for video_path in tqdm(video_paths):

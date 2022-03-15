@@ -197,10 +197,10 @@ if __name__ == "__main__":
         print(label.shape)
         for img_b in range(train_config["batch_size"]):
             trans(label[img_b].squeeze()).save(os.path.join("./dataset_test", '{}_gt.png'.format(img_b)), quality=100)
-            for ti in range(4):
-                trans(((input1[img_b][ti]).float()).squeeze()).save(os.path.join("./dataset_test", '{}_gt_{}.png'.format(img_b, ti)), quality=100)
-            for ti in range(4):
-                trans(((input1[img_b][63-ti]).float()).squeeze()).save(os.path.join("./dataset_test", '{}_gt_{}.png'.format(img_b, 63-ti)), quality=100)
+            for ti in range(data.burst_size):
+                trans(((input1[img_b][ti]).float()).squeeze()).save(os.path.join("./dataset_test", '{}_gt_N{:03d}.png'.format(img_b, ti)), quality=100)
+            # for ti in range(4):
+                # trans(((input1[img_b][63-ti]).float()).squeeze()).save(os.path.join("./dataset_test", '{}_gt_{}.png'.format(img_b, 63-ti)), quality=100)
             trans(((torch.mean(input1[img_b],dim=0)).float()).squeeze()).save(os.path.join("./dataset_test", '{}_gt_avg.png'.format(img_b)), quality=100)
             input("...")
         input("....")
