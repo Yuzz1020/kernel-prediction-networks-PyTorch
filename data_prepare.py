@@ -131,6 +131,7 @@ class Customized_dataset(Dataset): #继承Dataset
         image = F.adaptive_avg_pool2d(image, (self.patch_size, self.patch_size))
         
         image = image.reshape(self.burst_size, -1, image.shape[1], image.shape[2])
+        label = image 
         image = torch.poisson(image)
         image = (image > 0).float()
         image = torch.mean(image, dim=1)
