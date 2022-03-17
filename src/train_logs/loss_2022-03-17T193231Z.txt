@@ -1,0 +1,9 @@
+Parameters: device=cuda:0, extra_block=False, dropout=False, loss_type='single', loss=CharbonnierPenalty_v3(n=10, total_variation=False, per_pixel=False), multi_optimize=False, epochs=20, batch_size=2, train_videos=2300, optimizer=AdamW (
+Parameter Group 0
+    amsgrad: False
+    betas: (0.9, 0.99)
+    eps: 1e-08
+    initial_lr: 0.001
+    lr: 0.0004222222222222222
+    weight_decay: 8e-09
+), initialization='initialize_default', scheduler=OneCycleScheduler(hi_lr=0.003, low_lr=0.001, tail_epochs=5, tail_multiplier=0.1)

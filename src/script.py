@@ -6,9 +6,9 @@ from dataloader import VideoVolume
 from loss import CharbonnierPenalty
 from network import MultiLossNet, SingleLossNet
 from scheduler import OneCycleScheduler
-from ..data_prepare import Customized_dataset
-from ..data_provider import _configspec_path
-from ..utils.training_util import read_config
+from data_prepare import Customized_dataset
+from data_provider import _configspec_path
+from utils.training_util import read_config
 
 '''
 Define parameters
@@ -49,7 +49,7 @@ Load data
 
 # val_set   = VideoVolume(gpu=GPU, normalize=NORMALIZE, size=SIZE, test=True, start=1500, end=1600, debug=False)  # validation now without augmentation
 # test_set  = VideoVolume(gpu=GPU, normalize=NORMALIZE, size=SIZE, test=True, start=2400, end=2500, debug=False)
-config = read_config('../kpn_specs/kpn_config-cnn.conf', '../kpn_specs/configspec.conf')
+config = read_config('../kpn_128/kpn_config-cnn.conf', '../kpn_specs/configspec.conf')
 train_config = config['training']
 
 dataset_config = read_config(train_config['dataset_configs'], _configspec_path())['dataset_configs']
@@ -58,9 +58,9 @@ train_set = Customized_dataset(train_config['dataset_configs'], '../../dataset/t
 test_set = Customized_dataset(train_config['dataset_configs'], '../../dataset/eval_images/', train_config['local_window_size'], transform=None)#初始化类，设置数据集所在路径以及变换
 
 
-train_loader = DataLoader(train_set, BATCH_SIZE=BATCH_SIZE, shuffle=True, num_workers=0) # workers=0 since data is on gpu
-val_loader   = DataLoader(test_set, BATCH_SIZE=BATCH_SIZE, num_workers=0)
-test_loader  = DataLoader(test_set, BATCH_SIZE=1, num_workers=0)
+train_loader = DataLoader(train_set, batch_size=BATCH_SIZE, shuffle=True, num_workers=8) # workers=0 since data is on gpu
+val_loader   = DataLoader(test_set, batch_size=BATCH_SIZE, num_workers=8)
+test_loader  = DataLoader(test_set, batch_size=1, num_workers=8)
 
 date_str = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H%M%SZ")
 
@@ -80,7 +80,14 @@ else:
 Set loss function, optimizer, scheduler
 '''
 loss = CharbonnierPenalty(10, total_variation=False, per_pixel=False)  # highest possible charbonnier n is 1023
-
+try:
+    inp = torch.rand(4, 3, 8, 32, 32).cuda()
+    conv = torch.nn.Conv3d(3, 6, 3).cuda()
+    out = conv(inp)
+except:
+    inp = torch.rand(4, 3, 8, 32, 32).cuda() 
+    conv = torch.nn.Conv3d(3, 6, 3).cuda()
+    out = conv(inp)
 hi_lr = 3e-3  # only used for one_cycle 
 low_lr = 1e-3
 #optimizer = torch.optim.Adam(network.parameters(), lr=1e-3, weight_decay=2e-3)
@@ -100,7 +107,7 @@ Save parameters to log file
 param_str = "Parameters: device={}, extra_block={}, dropout={}, loss_type='{}', loss={}, multi_optimize={}, epochs={}, batch_size={}, train_videos={}, optimizer={}, initialization='{}', scheduler={}".format(
     GPU, EXTRA_BLOCK, DROPOUT, LOSS_TYPE, loss, MULTI_OPTIMIZE, EPOCHS, BATCH_SIZE, TRAIN_SET_SIZE, optimizer, INITIALIZATION if CONTINUE_EPOCH <= 0 else CONTINUE_SNAPSHOT, ONE_CYCLE)
 print(param_str)
-fw = open(solver.logfile, 'a+')
+fw = open(solver.logfile, 'w')
 if CONTINUE_EPOCH > 0:
     fw.write("\n\n")
 fw.write(param_str)

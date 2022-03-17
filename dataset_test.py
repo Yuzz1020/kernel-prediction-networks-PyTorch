@@ -152,20 +152,20 @@ def read_images(image_path, train_path, label_path, image_count, oversampled_rat
         np.save(train_path + "frame%d.npy" % i, images_np)
 
 video_list=[]
-for f in os.listdir("/scratch/yz87/original_high_fps_videos/"):
+for f in os.listdir("/home/zy42/Single_Photon/dataset/original_high_fps_videos/"):
     print(f)
     if "720p_240fps_3.mov" not in f and "GOPR9650.mp4" not in f:
-        video_list.append("/scratch/yz87/original_high_fps_videos/"+f)
+        video_list.append("/home/zy42/Single_Photon/dataset/original_high_fps_videos/"+f)
 
 
 
 #training images
-img_count = convert_video_to_images_with_subfolder(video_list, "/scratch/yz87/test_images/")
+img_count = convert_video_to_images_with_subfolder(video_list, "/home/zy42/Single_Photon/dataset/test_images/")
 print("total images: ", img_count)
 
 #evaluation images
-img_count = convert_video_to_images_with_subfolder(["/scratch/yz87/original_high_fps_videos/GOPR9650.mp4", "/scratch/yz87/original_high_fps_videos/720p_240fps_3.mov"], "/scratch/yz87/eval_images/")
-print("total images: ", img_count)
+# img_count = convert_video_to_images_with_subfolder(["/home/zy42/Single_Photon/dataset/original_high_fps_videos/GOPR9650.mp4", "/home/zy42/Single_Photon/dataset/original_high_fps_videos/720p_240fps_3.mov"], "/home/zy42/Single_Photon/dataset/eval_images/")
+# print("total images: ", img_count)
 
 
 # #training images
